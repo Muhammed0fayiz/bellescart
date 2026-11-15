@@ -121,6 +121,7 @@ async function handleProxyRequest(
         success: false,
         error: 'Proxy error',
         details: error instanceof Error ? error.message : 'Unknown error',
+        cause: (error as any)?.cause ? String((error as any).cause?.code || (error as any).cause?.message || (error as any).cause) : undefined,
       },
       { status: 500 }
     );

@@ -38,12 +38,75 @@ export const hasMarketingConsent = async (
 /* Shared helpers                                                             */
 /* -------------------------------------------------------------------------- */
 
+/**
+ * Sends mail over HTTPS via Brevo when BREVO_API_KEY is set (needed on hosts
+ * like Render that block outbound SMTP ports). Falls back to SMTP otherwise.
+ */
+const parseSender = (from: string) => {
+  const match = from.match(/^\s*(.*?)\s*<([^>]+)>\s*$/);
+  return match
+    ? { name: match[1].replace(/^"|"$/g, "") || undefined, email: match[2] }
+    : { email: from.trim() };
+};
+
+const createBrevoTransporter = () => ({
+  sendMail: async (options: {
+    from?: string;
+    to: string | string[];
+    subject: string;
+    html: string;
+  }) => {
+    const sender = parseSender(
+      process.env.EMAIL_FROM || options.from || process.env.EMAIL_USER || ""
+    );
+    const recipients = (Array.isArray(options.to) ? options.to : [options.to]).map(
+      (email) => ({ email })
+    );
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 15000);
+
+    try {
+      const response = await fetch("https://api.brevo.com/v3/smtp/email", {
+        method: "POST",
+        headers: {
+          "api-key": process.env.BREVO_API_KEY as string,
+          "content-type": "application/json",
+          accept: "application/json",
+        },
+        body: JSON.stringify({
+          sender,
+          to: recipients,
+          subject: options.subject,
+          htmlContent: options.html,
+        }),
+        signal: controller.signal,
+      });
+
+      const text = await response.text();
+      if (!response.ok) {
+        throw new Error(`Brevo API error ${response.status}: ${text}`);
+      }
+      return text ? JSON.parse(text) : {};
+    } finally {
+      clearTimeout(timer);
+    }
+  },
+});
+
 const createTransporter = () => {
+  if (process.env.BREVO_API_KEY) {
+    return createBrevoTransporter();
+  }
+
   return nodemailer.createTransport({
     host: process.env.EMAIL_HOST,
     port: parseInt(process.env.EMAIL_PORT || "587"),
     secure: false,
     family: 4, // Force IPv4 to prevent IPv6 connection errors
+    connectionTimeout: 10000,
+    greetingTimeout: 10000,
+    socketTimeout: 15000,
     auth: {
       user: process.env.EMAIL_USER,
       pass: process.env.EMAIL_PASS,
