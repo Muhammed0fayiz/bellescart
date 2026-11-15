@@ -25,7 +25,7 @@
     "noImplicitThis": false,
 
     /* Completeness */
-    "types": ["node"],
+"types": ["node", "express", "multer"],
 
     /* Additional options */
     "resolveJsonModule": true,
